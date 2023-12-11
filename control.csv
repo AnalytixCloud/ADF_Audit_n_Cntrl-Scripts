@@ -1,0 +1,5 @@
+﻿Source_System_Name,Business_Area,Source_Object_Type,Source_Object_Schema,Source_Object_Name,Source_File_Location,Target_Location,Target_Object_Name,File_Format,Partition_Column,Load_Type,Watermark_Column,Creation_Time,Indicator,Status,Last_Successful_date,watermark_value
+mssql,sales,table,dbo,purchaseorder,NULL,bronze,purchaseorder,NA,null,incremental,PO_ID,2023-06-10 15:59:00.000,1,Succeeded,2023-06-10 00:00:00.000,95
+adls,procurement,table,dbo,product,,bronze,product_table,NA,null,full_load,NULL,2023-06-10 12:59:00.000,1,Succeeded,2023-06-10 00:00:00.000,NULL
+adls,supplier,table,dbo,supplier,,bronze,supplier_data,NA,null,full_load,NULL,2023-06-10 13:59:00.000,1,Succeeded,2023-06-10 00:00:00.000,NULL
+mssql,shipping,table,dbo,transportation,NULL,bronze,transportation,NA,null,full_load,NULL,2023-06-10 14:59:00.000,1,Succeeded,2023-06-10 00:00:00.000,NULL
