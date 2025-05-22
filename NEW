@@ -1,0 +1,87 @@
+"FROM SC_SAFETY.INT_UDM_SAFETY.V_TD_GBL_ETQ_ SAFETY_EHS_EVENT_DOCUMENT v2
+		left join SC_MD.INT_SC_MD.V_MD_GBL_EHSS_USER_SETTING as users on v2.ETQ$AUTHOR = users.USER_ID
+		left join SC_MD.INT_SC_MD.V_MD_GBL_EHSS_USER_SETTING as users1 on v2.COMPEVENT_REPORTBY_KCNAME_ID= users1.USER_ID
+		left join SC_MD.INT_SC_MD.V_MD_GBL_EHSS_PHASE_SETTING ps ON (v2.ETQ$CURRENT_PHASE = ps.PHASE_ID)
+		left join SC_MD.INT_SC_MD.V_MD_GBL_EHSS_ASSET_DATA asset ON v2.COMPEVENT_ASSET_ASSET_ID = asset.KCC_ASSETS_DATA_ID
+	--current assigned to (person)
+		left join (select COMPEVEN_DOCUMENT_ID, ETQ$ASSIGNED from SC_MD.INT_SC_MD.V_MD_GBL_EHSS_COMPEVENT_DOCUMENT_ASN where ETQ$RECORD_ORDER = 0) casn on v2.COMPEVEN_DOCUMENT_ID = casn.COMPEVEN_DOCUMENT_ID
+		left join SC_MD.INT_SC_MD.V_MD_GBL_EHSS_USER_SETTING as users2 on casn.ETQ$ASSIGNED = users2.USER_ID
+
+	--location info
+		LEFT OUTER JOIN SC_MD.INT_SC_MD.V_MD_GBL_EHSS_EVENT_DOCUMENT_LOCATION_PROFILE_XREF inc_locs ON v2.COMPEVEN_DOCUMENT_ID = inc_locs.COMPEVEN_DOCUMENT_ID --location profile id from intermediate table
+		--location profile (must link to location profile first regardless of site profile)
+		LEFT JOIN SC_MD.INT_SC_MD.V_MD_GBL_EHSS_LOCATION_PROFILE locProfile ON inc_locs.ETQ$LOCATIONS_ID = locProfile.LOCATION_PROFILE_ID --join to acutal location profile
+	--site profile link by matching the location profile id AND matching the form and site profile sector (handles sites like Beech but will miss others if form sector<>site profile sector)
+			left join location_ref on inc_locs.ETQ$LOCATIONS_ID = location_ref.location_profile_id and v2.COMPEVENT_GSRSECTOR_ID = location_ref.sector_id_from_site_profile
+	--site profile based on location and newest site profile (gets site profile info for sites that don't match on form sector = sp sector)
+			left join (select spl.ETQ$LOCATIONS_ID as locId, max(spl.K_C_SITE_PROFILE_ID) as maxSp from SC_MD.INT_SC_MD.V_MD_GBL_EHSS_SITE_LOCATION_PROFILE_XREF spl group by spl.ETQ$LOCATIONS_ID) as maxsite
+				on locProfile.LOCATION_PROFILE_ID = maxsite.locId
+
+	--new method for linking to staff location information: this is driven from the staff site being a subform of the site profile
+		left join SC_MD.INT_SC_MD.V_MD_GBL_EHSS_STAFF_LOCATION_SITE_PROFILE_XREF sld on v2.COMPEVENT_STAFF_LOCATION_KC_ID = sld.M_STA_LO_DEFI_SUB_ID
+		left join SC_MD.INT_SC_MD.V_MD_GBL_EHSS_STAFF_LOCATION sl on sl.MD_STAFF_LOCATION_ID = sld.MD_STAFF_LOCATION_ID
+
+	--finally the link to site profile
+			left join SC_MD.INT_SC_MD.V_MD_GBL_EHSS_SITE_PROFILE sp on sp.K_C_SITE_PROFILE_ID = 
+					case
+						when sld.K_C_SITE_PROFILE_ID is not null then sld.K_C_SITE_PROFILE_ID 
+						when location_ref.site_profile_id is not null then location_ref.site_profile_id 
+						else maxsite.maxSp
+					end 
+				--staff site country may be different than the site profile country due to staff sites being a subform of the site profile
+				LEFT JOIN SC_MD.INT_SC_MD.V_MD_GBL_EHSS_COUNTRY COUNTRY_1 ON COUNTRY_1.COUNTRY_ID = 
+					case 
+						when sld.K_C_SITE_PROFILE_ID is not null then sld.MD_KCSP_COUNTRY_ID
+						else sp.COUNTRY_4_ID 
+					end
+				--LEFT JOIN MASTER_DATA.VW_KC_SITE_PROFILES_CONCAT_FIELDS CONCAT_FIELDS ON (sp.K_C_SITE_PROFILE_ID = CONCAT_FIELDS.K_C_SITE_PROFILE_ID)
+				LEFT JOIN SC_MD.INT_SC_MD.V_MD_GBL_EHSS_REGION_NAME REGION_NAMES_1 ON (sp.MD_SITEPRF_REGION_ID = REGION_NAMES_1.REGION_NAMES_ID )
+				LEFT JOIN SC_MD.INT_SC_MD.V_MD_GBL_EHSS_UNIT_GSR UNIT_GSR_1 ON (sp.MD_SITEPRF_UNITGSR_ID = UNIT_GSR_1.UNIT_GSR_ID )
+				LEFT JOIN SC_MD.INT_SC_MD.V_MD_GBL_EHSS_SECTOR_GSR SECTOR_GSR_1 ON (sp.MD_SITEPRF_GSR_SECTOR_ID = SECTOR_GSR_1.SECTOR_GSR_ID )
+				LEFT JOIN SC_MD.INT_SC_MD.V_MD_GBL_EHSS_SUB_REGION MD_SUB_REGION_1 ON (sp.MD_SUB_REGION_ID = MD_SUB_REGION_1.MD_SUB_REGION_ID )
+				LEFT JOIN SC_MD.INT_SC_MD.V_MD_GBL_EHSS_BUSINESS_UNIT QUALITY_DASH_BU_1 ON (sp.MD_BUSINESS_UNITS_ID = QUALITY_DASH_BU_1.QUALITY_DASH_BU_ID )
+	--location info for form sector and form region
+			left join SC_MD.INT_SC_MD.V_MD_GBL_EHSS_SECTOR mdsector on v2.COMPEVENT_SECTOR_ID = mdsector.MD_SECTOR_ID
+			left join SC_MD.INT_SC_MD.V_MD_GBL_EHSS_REGION_NAME REGION_FORM on v2.COMPEVENT_REGION_ID = REGION_FORM.REGION_NAMES_ID
+
+	--INJURY ILLNESS form link: subquery ensures the links are only for injury illness links since INCIDENTS.ETQ$INJURY_ILLNESS_SL can contain links to other types of documents
+		left join 
+			(select
+			doclink.document_id,
+			doclink.link_id,
+			iilink.injury_illness_id
+			from SC_MD.INT_SC_MD.V_MD_GBL_ETQ_ SAFETY_DOCUMENT_LINK doclink 
+				left join SC_MD.INT_SC_MD.V_MD_GBL_ETQ_SAFETY_INJURY_ILLNESS_SOURCE_LINK iilink on doclink.link_id = iilink.etq$source_link
+			where iilink.injury_illness_id is not null and doclink.form_id = 565 and doclink.application_id = 30 ) as iijoin on v2.COMPEVEN_DOCUMENT_ID = iijoin.DOCUMENT_ID  --prod
+			--where iilink.injury_illness_id is not null and doclink.form_id = 564 and doclink.application_id = 30 ) as iijoin on v2.COMPEVEN_DOCUMENT_ID = iijoin.DOCUMENT_ID  --qual
+		left join SC_SAFETY.INT_UDM_SAFETY.V_TD_GBL_ETQ_SAFETY_INJURY_ILLNESS ii on (iijoin.INJURY_ILLNESS_ID = ii.INJURY_ILLNESS_ID)
+		--injury illness lookups
+			--i/i nature of i/i
+			left join SC_MD.INT_SC_MD.V_MD_GBL_EHSS_II_NATURE_OF_ILLNESS_XREF inoi on ii.INJURY_ILLNESS_ID = inoi.INJURY_ILLNESS_ID 
+			left join SC_MD.INT_SC_MD.V_MD_GBL_EHSS_KC_NATURE_OF_INJURY lnoi ON lnoi.KC_NATURE_OF_INJURY_ID = inoi.NATURE_OF_INJURY
+
+			left join SC_MD.INT_SC_MD.V_MD_GBL_EHSS_DETAIL_EVENT_TYPE iievent_type ON (ii.DETAILED_EVENT_TYPE_2_ID = iievent_type.DETAILED_EVENT_TYPE_2_ID )
+			left join SC_MD.INT_SC_MD.V_MD_GBL_EHSS_PHASE_SETTING ii_phase ON (ii.ETQ$CURRENT_PHASE = ii_phase.PHASE_ID)
+		--employment status
+		left join SC_MD.INT_SC_MD.V_MD_GBL_EHSS_ EMPLOYMENT_STATUS es on ii.EMPLOYMENT_STATUS = es.EMPLOYMENT_STATUS_ID
+		--hearing loss nature of injury
+		left join 
+			(select noi.INJURY_ILLNESS_ID, count(1) as cnt
+			from SC_MD.INT_SC_MD.V_MD_GBL_EHSS_II_NATURE_OF_ILLNESS_XREF noi LEFT JOIN SC_MD.INT_SC_MD.V_MD_GBL_EHSS_KC_NATURE_OF_INJURY noid ON noi.NATURE_OF_INJURY = noid.KC_NATURE_OF_INJURY_ID
+			where noid.DESCRIPTION = 'Hearing Loss' 
+			group by noi.INJURY_ILLNESS_ID) as noi_hearingloss_count on ii.INJURY_ILLNESS_ID = noi_hearingloss_count.INJURY_ILLNESS_ID
+
+		--join to determine whether the I/I is considered severe
+			left join LAB.REPORTING.V_ETQ_SAFETY_II_SEVERITY_DETERMINATION sev on ii.ETQ$NUMBER = sev.ii_doc_number
+
+
+	--asset area lookup
+		left join SC_MD.INT_SC_MD.V_MD_GBL_EHSS_ASSET_AREA aarea on v2.COMPEVENT_ASSET_AREA_ID = aarea.KCC_ASSET_AREA_ID
+	--asset sections
+		left join SC_MD.INT_SC_MD.V_MD_GBL_EHSS_ASSET_SECTION asections on v2.COMPEVENT_ASSET_SECTION_ID = asections.KCC_ASSET_SECTIONS_ID
+
+	WHERE
+		year(v2.ETQ$CREATED_DATE) >= 2022
+		and v2.COMPEVENT_SITE_SHORT_NAME  = sp.SITE_SHORT_NAME --this must occur in the where clause due to site multi-select
+		and ii.ETQ$CURRENT_PHASE <> 1682 --i/i not in void
+		and ps.DISPLAY_NAME not in ('Voided','ETQ_INCIDENTS_DOCUMENT_VOIDED','KC_VOIDED')--EHS event is not voided"
