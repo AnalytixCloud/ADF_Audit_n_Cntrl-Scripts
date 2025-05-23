@@ -1,0 +1,44 @@
+from snowflake.snowpark import Session
+from snowflake.snowpark.functions import col
+import re
+
+# Step 1: Read mapping table from Snowflake
+mapping_df = session.table("EHSS_MAPPING.COLUMN_MAPPING").to_pandas()
+
+# Step 2: SQL query as a string
+sql_query = """
+SELECT a.column1, b.column2
+FROM STG_TABLE_A a
+JOIN STG_TABLE_B b ON a.column3 = b.column4
+WHERE a.column5 > 100
+"""
+
+# Step 3: Extract table aliases from the SQL
+table_aliases = {}
+for match in re.finditer(r'\bFROM\s+(\w+)\s+(\w+)|\bJOIN\s+(\w+)\s+(\w+)', sql_query, re.IGNORECASE):
+    table = match.group(1) or match.group(3)
+    alias = match.group(2) or match.group(4)
+    table_aliases[alias] = table
+
+# Step 4: Replace column names using the mapping
+for _, row in mapping_df.iterrows():
+    staging_table = row['STAGING_TABLE_NAME']
+    staging_col = row['STAGING_COLUMN_NAME']
+    udm_table = row['UDM_TABLE_NAME']
+    udm_col = row['UDM_COLUMN_NAME']
+
+    for alias, table in table_aliases.items():
+        if table.upper() == staging_table.upper():
+            pattern = rf'\b{alias}\.{staging_col}\b'
+            replacement = f'{alias}.{udm_col}'
+            sql_query = re.sub(pattern, replacement, sql_query)
+
+# Step 5: Replace table names
+for alias, table in table_aliases.items():
+    match_rows = mapping_df[mapping_df['STAGING_TABLE_NAME'].str.upper() == table.upper()]
+    if not match_rows.empty:
+        udm_table_name = match_rows.iloc[0]['UDM_TABLE_NAME']
+        sql_query = re.sub(rf'\b{table}\b', udm_table_name, sql_query)
+
+# Output updated SQL query
+print("Updated SQL Query:\n", sql_query)
